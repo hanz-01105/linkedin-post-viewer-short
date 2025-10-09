@@ -680,6 +680,70 @@ def extract_author_info(post_element):
     return author_info
 
 
+def extract_hashtags_from_text(text: str):
+    """Parse hashtags from any plain text. Keeps Unicode letters and digits too."""
+    if not text:
+        return []
+    # captures after # until a whitespace or common punctuation/separators
+    return sorted(set(
+        m.group(1)
+        for m in re.finditer(r'#([0-9A-Za-z_\-\u00C0-\uFFFF]+)', text)
+    ))
+
+def extract_hashtag_elements(post_element):
+    """Collect hashtags from a variety of LinkedIn anchor patterns."""
+    tags = set()
+    try:
+        anchors = []
+        # common cases
+        anchors += post_element.find_elements(By.CSS_SELECTOR, 'a[href*="/hashtag/"]')
+        anchors += post_element.find_elements(By.CSS_SELECTOR, 'a[href*="hashtag"]')
+        anchors += post_element.find_elements(By.CSS_SELECTOR, 'a[href*="keywords=%23"]')
+        anchors += post_element.find_elements(By.CSS_SELECTOR, 'a[href*="%23"]')
+        # new(er) pattern using hovercard
+        anchors += post_element.find_elements(By.CSS_SELECTOR, 'a[data-entity-hovercard-id^="urn:li:hashtag:"]')
+
+        for a in anchors:
+            t = (a.text or "").strip()
+            if t.startswith('#') and len(t) > 1:
+                # visible text like "#AppleEvent"
+                tags.add(t[1:].split()[0])
+                continue
+
+            # pull from hovercard id if present
+            hover = a.get_attribute('data-entity-hovercard-id') or ''
+            m = re.search(r'urn:li:hashtag:([^"\']+)', hover)
+            if m:
+                tags.add(m.group(1))
+                continue
+
+            # pull from href variants
+            href = a.get_attribute('href') or ''
+            # /hashtag/Name[/]...
+            m = re.search(r'/hashtag/([^/?#]+)/?', href)
+            if m:
+                tags.add(m.group(1))
+                continue
+            # ...keywords=%23Name...
+            m = re.search(r'keywords=%23([^&/#?]+)', href)
+            if m:
+                tags.add(m.group(1))
+                continue
+            # fallback: decode percent-escapes around %23
+            try:
+                from urllib.parse import unquote
+                u = unquote(href)
+                m = re.search(r'#([0-9A-Za-z_\-\u00C0-\uFFFF]+)', u)
+                if m:
+                    tags.add(m.group(1))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # Normalize to unique, sorted
+    return sorted(tags, key=lambda s: s.lower())
+
+
 def extract_post_content(post_element, post_index):
     """Extract content from a single post element."""
     post_data = {
@@ -687,6 +751,7 @@ def extract_post_content(post_element, post_index):
         'text': '',
         'media': [],
         'timestamp': '',
+        'tags': [],
         'author': {
             'name': '',
             'profile_url': '',
@@ -726,7 +791,16 @@ def extract_post_content(post_element, post_index):
         
         # Extract media URLs
         post_data['media'] = extract_media_urls(post_element)
-        
+
+        # Hashtags: combine DOM anchors + content text + full post text
+        dom_tags = extract_hashtag_elements(post_element)
+        text_tags = extract_hashtags_from_text(post_data['text'])
+
+        full_text = (post_element.text or "").strip()
+        full_text_tags = extract_hashtags_from_text(full_text)
+
+        post_data['tags'] = sorted(set(dom_tags + text_tags + full_text_tags), key=lambda s: s.lower())
+
         print(f"  Post {post_index}: {len(post_data['text'])} chars, {len(post_data['media'])} media, {post_data['timestamp'][:10]}")
         
     except Exception as e:

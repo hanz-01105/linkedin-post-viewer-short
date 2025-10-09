@@ -49,6 +49,20 @@ Your current script requires manual ChromeDriver installation. Here are the step
 
 #### Install Chrome Browser
 
+**Apple Silicon:**
+```bash
+CHROME_VER="$(/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --version | awk '{print $3}')"
+PLATFORM="mac-arm64"
+BASE="https://storage.googleapis.com/chrome-for-testing-public"
+PKG="chromedriver-$PLATFORM.zip"
+curl -fL "$BASE/$CHROME_VER/$PLATFORM/$PKG" -o "$PKG"
+unzip -o "$PKG"
+sudo mv -f chromedriver-mac-arm64/chromedriver /usr/local/bin/chromedriver
+sudo chmod +x /usr/local/bin/chromedriver
+xattr -d com.apple.quarantine /usr/local/bin/chromedriver 2>/dev/null || true
+chromedriver --version
+```
+
 **Ubuntu/Debian:**
 ```bash
 # Method 1: Using Google's repository (recommended)
